@@ -4,6 +4,7 @@
 #include <freertos/task.h>
 
 #include "driver/gpio.h"
+#include "driver/ledc.h"
 #include "esp_log.h"
 #include "esp_err.h"
 
@@ -15,23 +16,75 @@
 #define DHT22_GPIO          GPIO_NUM_10
 #define DHT22_SENSOR_TYPE   DHT_TYPE_AM2301
 
+#define FAN_PWM_FREQ    (25 * 1000)
+#define FAN_PWM_TIMER   LEDC_TIMER_0
+#define FAN_PWM_SPEED   LEDC_LOW_SPEED_MODE
+#define FAN_PWM_CHANNEL LEDC_CHANNEL_0
+#define FAN_GPIO        GPIO_NUM_8
+
+int16_t minHumidity = 30 * 10;
+int16_t maxHumidity = 70 * 10;
+int16_t steps = 0;
+uint32_t duty = 0;
+uint32_t maxDuty = 1024;
+
 void app_main(void)
 {
     const TickType_t delayTicks = 2000 / portTICK_PERIOD_MS;
-
-    gpio_reset_pin(BLINK_GPIO);
-    /* Set the GPIO as a push/pull output */
-    gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
-    uint8_t led = 0;
     int16_t humidity;
     int16_t temperature;
     esp_err_t ret;
 
+    ledc_timer_config_t pwmTimer = {
+        .speed_mode = FAN_PWM_SPEED,
+        .duty_resolution = LEDC_TIMER_10_BIT,
+        .timer_num = FAN_PWM_TIMER,
+        .freq_hz = FAN_PWM_FREQ,
+        .clk_cfg = LEDC_AUTO_CLK,
+        .deconfigure = false,
+    };
+
+    ledc_channel_config_t pwmChannel = {
+        .gpio_num = FAN_GPIO,
+        .speed_mode = FAN_PWM_SPEED,
+        .channel = FAN_PWM_CHANNEL,
+        .intr_type = LEDC_INTR_DISABLE,
+        .timer_sel = FAN_PWM_TIMER,
+        .duty = duty,
+        .hpoint = duty,
+        .sleep_mode = LEDC_SLEEP_MODE_NO_ALIVE_NO_PD,
+    };
+    
+    ret = ledc_timer_config(&pwmTimer);
+    if (ret == ESP_OK)
+    {
+        ret = ledc_channel_config(&pwmChannel);
+        if (ret == ESP_OK)
+        {
+            ESP_LOGI(LOG_TAG, "PWM channel set correctly");
+        }
+    }
+
+    steps = maxHumidity - minHumidity;
     while(1)
     {
-        led = !led;
-        gpio_set_level(BLINK_GPIO, led);
         ret = dht_read_data(DHT22_SENSOR_TYPE, DHT22_GPIO, &humidity, &temperature);
+        
+        if (humidity < minHumidity)
+        {
+            duty = 0;
+        }
+        else if (humidity > maxHumidity)
+        {
+            duty = maxDuty;
+        }
+        else
+        {
+            duty = ((humidity - minHumidity) * maxDuty) / steps;
+        }
+
+        ESP_ERROR_CHECK(ledc_set_duty(FAN_PWM_SPEED, FAN_PWM_CHANNEL, duty));
+        ESP_ERROR_CHECK(ledc_update_duty(FAN_PWM_SPEED, FAN_PWM_CHANNEL));
         if (ret == ESP_OK)
         {
             ESP_LOGI(LOG_TAG, "Temperature = %d, Humidity = %d", temperature, humidity);
