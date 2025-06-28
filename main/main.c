@@ -25,9 +25,6 @@
 #define FAN_PWM_DUTY_MAX    ((0x1u << ((size_t)FAN_PWM_DUTY_RES)) - 1)
 #define FAN_GPIO            GPIO_NUM_8
 
-esp_err_t InitializePwmController(void);
-esp_err_t InitializeNvs(void);
-
 typedef struct fan_control_state
 {
     /// @brief minimum humidity value * 10 for fan to start working
@@ -40,6 +37,11 @@ typedef struct fan_control_state
     uint32_t duty;
 } fan_control_state_t;
 
+esp_err_t init_pwm_controller(void);
+esp_err_t init_nvs(void);
+void task_fan_control(void *);
+void calculate_fan_duty(fan_control_state_t *fan, int16_t humidity);
+
 fan_control_state_t fan = {
     .humidty_min = 30 * 10,
     .humidity_max = 70 * 10,
@@ -47,9 +49,9 @@ fan_control_state_t fan = {
     .duty = 0,
 };
 
-esp_err_t InitializePwmController(void)
+esp_err_t init_pwm_controller(void)
 {
-    ledc_timer_config_t pwmTimer = {
+    ledc_timer_config_t pwm_timer = {
         .speed_mode = FAN_PWM_SPEED,
         .duty_resolution = FAN_PWM_DUTY_RES,
         .timer_num = FAN_PWM_TIMER,
@@ -57,7 +59,7 @@ esp_err_t InitializePwmController(void)
         .clk_cfg = LEDC_AUTO_CLK,
         .deconfigure = false,
     };
-    ledc_channel_config_t pwmChannel = {
+    ledc_channel_config_t pwm_channel = {
         .gpio_num = FAN_GPIO,
         .speed_mode = FAN_PWM_SPEED,
         .channel = FAN_PWM_CHANNEL,
@@ -69,15 +71,15 @@ esp_err_t InitializePwmController(void)
     };
     esp_err_t ret;
 
-    ret = ledc_timer_config(&pwmTimer);
+    ret = ledc_timer_config(&pwm_timer);
     if (ret == ESP_OK)
     {
-        ret = ledc_channel_config(&pwmChannel);
+        ret = ledc_channel_config(&pwm_channel);
     }
     return ret;
 }
 
-esp_err_t InitializeNvs(void)
+esp_err_t init_nvs(void)
 {
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -89,48 +91,70 @@ esp_err_t InitializeNvs(void)
     return ret;
 }
 
-void app_main(void)
+void calculate_fan_duty(fan_control_state_t *fan, int16_t humidity)
 {
-    const TickType_t delayTicks = 2000 / portTICK_PERIOD_MS;
+    if (humidity < fan->humidty_min)
+    {
+        fan->duty = 0;
+    }
+    else if (humidity > fan->humidity_max)
+    {
+        fan->duty = FAN_PWM_DUTY_MAX;
+    }
+    else
+    {
+        fan->duty = ((humidity - fan->humidty_min) * FAN_PWM_DUTY_MAX) / fan->steps;
+    }
+}
+
+void task_fan_control(void *)
+{
     int16_t humidity;
     int16_t temperature;
     esp_err_t ret;
+    const TickType_t delay_ticks = 2000 / portTICK_PERIOD_MS;
 
-    ret = InitializePwmController();
+    while (1)
+    {
+        ret = dht_read_data(DHT22_SENSOR_TYPE, DHT22_GPIO, &humidity, &temperature);
+        if (ret == ESP_OK)
+        {
+            calculate_fan_duty(&fan, humidity);
+            ESP_ERROR_CHECK(ledc_set_duty(FAN_PWM_SPEED, FAN_PWM_CHANNEL, fan.duty));
+            ESP_ERROR_CHECK(ledc_update_duty(FAN_PWM_SPEED, FAN_PWM_CHANNEL));
+            if (ret == ESP_OK)
+            {
+                ESP_LOGI(LOG_TAG, "Temperature = %d, Humidity = %d", temperature, humidity);
+            }
+        }
+        vTaskDelay(delay_ticks);
+    }
+}
+
+void app_main(void)
+{
+    esp_err_t ret;
+
+    ret = init_pwm_controller();
     if (ret == ESP_OK)
     {
         ESP_LOGI(LOG_TAG, "PWM channel set correctly");
     }
 
-    ret = InitializeNvs();
+    ret = init_nvs();
     if (ret == ESP_OK)
     {
         ESP_LOGI(LOG_TAG, "NVS initialized");
     }
 
-    while(1)
-    {
-        ret = dht_read_data(DHT22_SENSOR_TYPE, DHT22_GPIO, &humidity, &temperature);
-        
-        if (humidity < fan.humidty_min)
-        {
-            fan.duty = 0;
-        }
-        else if (humidity > fan.humidity_max)
-        {
-            fan.duty = FAN_PWM_DUTY_MAX;
-        }
-        else
-        {
-            fan.duty = ((humidity - fan.humidty_min) * FAN_PWM_DUTY_MAX) / fan.steps;
-        }
+    TaskHandle_t fan_control_task_handle;
 
-        ESP_ERROR_CHECK(ledc_set_duty(FAN_PWM_SPEED, FAN_PWM_CHANNEL, fan.duty));
-        ESP_ERROR_CHECK(ledc_update_duty(FAN_PWM_SPEED, FAN_PWM_CHANNEL));
-        if (ret == ESP_OK)
-        {
-            ESP_LOGI(LOG_TAG, "Temperature = %d, Humidity = %d", temperature, humidity);
-        }
-        vTaskDelay(delayTicks);
-    }
+    xTaskCreate(task_fan_control,
+                "fan-control",
+                (configMINIMAL_STACK_SIZE * 8),
+                NULL,
+                (configMAX_PRIORITIES / 2),
+                &fan_control_task_handle);
+
+    vTaskSuspend(NULL);
 }
