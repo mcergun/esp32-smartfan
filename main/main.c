@@ -23,6 +23,7 @@
 #define FAN_PWM_CHANNEL     LEDC_CHANNEL_0
 #define FAN_PWM_DUTY_RES    LEDC_TIMER_10_BIT
 #define FAN_PWM_DUTY_MAX    ((0x1u << ((size_t)FAN_PWM_DUTY_RES)) - 1)
+#define FAN_PWM_DUTY_MIN    (4 * FAN_PWM_DUTY_MAX / 10)
 #define FAN_GPIO            GPIO_NUM_8
 
 typedef struct fan_control_state
@@ -41,6 +42,7 @@ esp_err_t init_pwm_controller(void);
 esp_err_t init_nvs(void);
 void task_fan_control(void *);
 void calculate_fan_duty(fan_control_state_t *fan, int16_t humidity);
+void appy_fan_duty(fan_control_state_t *fan);
 
 fan_control_state_t fan = {
     .humidty_min = 30 * 10,
@@ -95,7 +97,7 @@ void calculate_fan_duty(fan_control_state_t *fan, int16_t humidity)
 {
     if (humidity < fan->humidty_min)
     {
-        fan->duty = 0;
+        fan->duty = FAN_PWM_DUTY_MIN;
     }
     else if (humidity > fan->humidity_max)
     {
@@ -103,8 +105,14 @@ void calculate_fan_duty(fan_control_state_t *fan, int16_t humidity)
     }
     else
     {
-        fan->duty = ((humidity - fan->humidty_min) * FAN_PWM_DUTY_MAX) / fan->steps;
+        fan->duty = ((humidity - fan->humidty_min) * (FAN_PWM_DUTY_MAX - FAN_PWM_DUTY_MIN)) / fan->steps + FAN_PWM_DUTY_MIN;
     }
+}
+
+void appy_fan_duty(fan_control_state_t *fan)
+{
+    ESP_ERROR_CHECK(ledc_set_duty(FAN_PWM_SPEED, FAN_PWM_CHANNEL, fan->duty));
+    ESP_ERROR_CHECK(ledc_update_duty(FAN_PWM_SPEED, FAN_PWM_CHANNEL));
 }
 
 void task_fan_control(void *)
@@ -120,12 +128,16 @@ void task_fan_control(void *)
         if (ret == ESP_OK)
         {
             calculate_fan_duty(&fan, humidity);
-            ESP_ERROR_CHECK(ledc_set_duty(FAN_PWM_SPEED, FAN_PWM_CHANNEL, fan.duty));
-            ESP_ERROR_CHECK(ledc_update_duty(FAN_PWM_SPEED, FAN_PWM_CHANNEL));
+            appy_fan_duty(&fan);
             if (ret == ESP_OK)
             {
                 ESP_LOGI(LOG_TAG, "Temperature = %d, Humidity = %d", temperature, humidity);
             }
+        }
+        else
+        {
+            fan.duty = FAN_PWM_DUTY_MIN;
+            appy_fan_duty(&fan);
         }
         vTaskDelay(delay_ticks);
     }
