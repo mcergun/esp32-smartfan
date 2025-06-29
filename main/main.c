@@ -11,6 +11,7 @@
 
 #include "dht.h"
 #include "fan_controller.h"
+#include "ble_controller.h"
 
 #define LOG_TAG "FANCTL"
 
@@ -46,6 +47,16 @@ void app_main(void)
     if (ret == ESP_OK)
     {
         ESP_LOGI(LOG_TAG, "Fan controller initialized");
+    }
+
+    ret = ble_control_init();
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(LOG_TAG, "BLE fan service initialized");
+    }
+    else
+    {
+        ESP_LOGI(LOG_TAG, "BLE error %d\n", ret);
     }
     vTaskSuspend(NULL);
 }
