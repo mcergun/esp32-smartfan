@@ -1,6 +1,10 @@
 #ifndef FAN_CONTROLLER_H
 #define FAN_CONTROLLER_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "esp_err.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -52,5 +56,9 @@ SemaphoreHandle_t fan_controller_get_mutex_handle(void);
 ///        Note: This function now takes humidity and operates on the internal s_fan_state
 /// @param humidity Current humidity level * 10
 void fan_controller_calculate_duty(int16_t humidity);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
