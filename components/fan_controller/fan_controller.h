@@ -45,11 +45,42 @@ fan_control_state_t* fan_controller_get_state_ptr(void);
 SemaphoreHandle_t fan_controller_get_mutex_handle(void);
 
 uint32_t fan_controller_get_max_duty(void);
-uint32_t fan_controller_get_current_duty(void);
+
+/**
+ * @brief Get the current fan speed as a percentage
+ * 
+ * Returns the current fan speed as a percentage value.
+ * This represents the current fan speed in 0.1% units (0-1000).
+ * 
+ * @return Current fan speed percentage (0-1000, representing 0.0%-100.0%)
+ * 
+ * @see fan_controller_set_current_duty()
+ */
+uint16_t fan_controller_get_current_duty(void);
 int16_t fan_controller_get_min_humidity(void);
 int16_t fan_controller_get_max_humidity(void);
 fan_control_mode_t fan_controller_get_mode(void);
 
+/**
+ * @brief Set the fan speed as a percentage
+ * 
+ * Sets the fan speed as a percentage value, effectively controlling its speed.
+ * This function automatically switches the controller to MANUAL mode.
+ * 
+ * @param duty Fan speed percentage (0-1000, representing 0.0%-100.0%)
+ *             0 = fan off, 1000 = maximum speed
+ * 
+ * @return ESP_OK on success
+ * @return ESP_ERR_INVALID_ARG if duty is out of valid range (0-1000)
+ * @return ESP_ERR_TIMEOUT if mutex acquisition fails
+ * 
+ * @note This function automatically switches to MANUAL mode
+ * @note The duty cycle is applied immediately to the PWM output
+ * @note Internal conversion handles PWM duty cycle mapping
+ * 
+ * @see fan_controller_get_current_duty()
+ * @see fan_controller_set_mode()
+ */
 esp_err_t fan_controller_set_current_duty(uint32_t duty);
 esp_err_t fan_controller_set_min_humidity(int16_t humidity);
 esp_err_t fan_controller_set_max_humidity(int16_t humidity);

@@ -156,9 +156,9 @@ esp_err_t fan_controller_init(void)
     TaskHandle_t fan_control_task_handle;
     xTaskCreate(task_fan_control,
                 "fan-control",
-                (configMINIMAL_STACK_SIZE * 8), // Increased stack size
+                (configMINIMAL_STACK_SIZE * 8), // Increased stack size for sensor operations
                 NULL,
-                (configMAX_PRIORITIES / 2),
+                (configMAX_PRIORITIES / 2),     // Medium priority
                 &fan_control_task_handle);
 
     return ESP_OK;
@@ -179,9 +179,13 @@ uint32_t fan_controller_get_max_duty(void)
     return FAN_PWM_DUTY_MAX;
 }
 
-uint32_t fan_controller_get_current_duty(void)
+uint16_t fan_controller_get_current_duty(void)
 {
-    return s_fan.duty;
+    // Convert PWM duty cycle (0-1023) to percentage (0-1000)
+    // 1023 -> 1000 (100%)
+    // 511 -> 500 (50%)
+    // 102 -> 100 (10%)
+    return (1000 * s_fan.duty) / FAN_PWM_DUTY_MAX;
 }
 
 int16_t fan_controller_get_min_humidity(void)
@@ -201,14 +205,20 @@ fan_control_mode_t fan_controller_get_mode(void)
 
 esp_err_t fan_controller_set_current_duty(uint32_t duty)
 {
-    if (duty < FAN_PWM_DUTY_MIN || duty > FAN_PWM_DUTY_MAX)
+    // Validate percentage range (0-1000 for 0.0%-100.0%)
+    if (duty > 1000)
     {
         return ESP_ERR_INVALID_ARG;
     }
+    
     if (xSemaphoreTake(s_fan_control_mutex, SEMAPHORE_TIMEOUT_TICKS) == pdTRUE)
     {
         s_fan.control_mode = FAN_MODE_MANUAL;
-        s_fan.duty = duty;
+        // Convert percentage (0-1000) to PWM duty cycle (0-1023)
+        // 1000 -> 1023 (100%)
+        // 500 -> 511 (50%)
+        // 100 -> 102 (10%)
+        s_fan.duty = (duty * FAN_PWM_DUTY_MAX) / 1000;
         apply_fan_duty(&s_fan);
         xSemaphoreGive(s_fan_control_mutex);
         return ESP_OK;
