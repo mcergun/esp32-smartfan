@@ -16,33 +16,17 @@ char *TAG = "BLE-Server";
 uint8_t ble_addr_type;
 void ble_app_advertise(void);
 
-// Write data to ESP32 defined as server
+// Should respond to commands like:
+// SET AUTO -> fan auto mode
+// SET 500 -> set fan 50%
+// GET DUTY -> get duty percent
+// GET MAX -> gets max humidity in algorithm
+// GET MIN -> gets min humidity in algorithm
 static int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
-    // printf("Data from the client: %.*s\n", ctxt->om->om_len, ctxt->om->om_data);
-
-    char * data = (char *)ctxt->om->om_data;
-    printf("%d\n",strcmp(data, (char *)"LIGHT ON")==0);
-    if (strcmp(data, (char *)"LIGHT ON\0")==0)
-    {
-       printf("LIGHT ON\n");
-    }
-    else if (strcmp(data, (char *)"LIGHT OFF\0")==0)
-    {
-        printf("LIGHT OFF\n");
-    }
-    else if (strcmp(data, (char *)"FAN ON\0")==0)
-    {
-        printf("FAN ON\n");
-    }
-    else if (strcmp(data, (char *)"FAN OFF\0")==0)
-    {
-        printf("FAN OFF\n");
-    }
-    else{
-        printf("Data from the client: %.*s\n", ctxt->om->om_len, ctxt->om->om_data);
-    }
-    
+    // char * data = (char *)ctxt->om->om_data;
+    // (void)data;
+    printf("Data from the client: %.*s\n", ctxt->om->om_len, ctxt->om->om_data);
     
     return 0;
 }
