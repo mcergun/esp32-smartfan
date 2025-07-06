@@ -149,6 +149,34 @@ int16_t fan_controller_get_max_humidity(void);
 fan_control_mode_t fan_controller_get_mode(void);
 
 /**
+ * @brief Get the current humidity reading
+ * 
+ * Returns the most recent humidity reading from the DHT22 sensor.
+ * This function is not thread-safe.
+ * 
+ * @return Current humidity reading (0.1% units, e.g., 300 = 30.0%)
+ *         Returns 0 if no valid reading is available
+ * 
+ * @note This function should be called when sensor data is needed
+ * @note The value is updated every 2 seconds by the fan control task
+ */
+int16_t fan_controller_get_current_humidity(void);
+
+/**
+ * @brief Get the current temperature reading
+ * 
+ * Returns the most recent temperature reading from the DHT22 sensor.
+ * This function is not thread-safe.
+ * 
+ * @return Current temperature reading (0.1°C units, e.g., 250 = 25.0°C)
+ *         Returns 0 if no valid reading is available
+ * 
+ * @note This function should be called when sensor data is needed
+ * @note The value is updated every 2 seconds by the fan control task
+ */
+int16_t fan_controller_get_current_temperature(void);
+
+/**
  * @brief Set the fan speed as a percentage
  * 
  * Sets the fan speed as a percentage value, effectively controlling its speed.

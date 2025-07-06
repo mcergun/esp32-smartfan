@@ -77,6 +77,10 @@ fan_control_state_t s_fan = {
 };
 static SemaphoreHandle_t s_fan_control_mutex;
 
+// Sensor data storage
+static int16_t s_current_humidity = 0;
+static int16_t s_current_temperature = 0;
+
 esp_err_t init_pwm_controller(void)
 {
     // Configure PWM timer for 25kHz frequency with 10-bit resolution
@@ -154,18 +158,24 @@ void task_fan_control(void *pvParameters)
         // Read humidity and temperature from DHT22 sensor
         ret = dht_read_data(DHT22_SENSOR_TYPE, DHT22_GPIO, &humidity, &temperature);
         
-        if (s_fan.control_mode == FAN_MODE_AUTO) 
+        if (ret == ESP_OK)
         {
-            if (ret == ESP_OK)
+            s_current_humidity = humidity;
+            s_current_temperature = temperature;
+            
+            if (s_fan.control_mode == FAN_MODE_AUTO) 
             {
                 // Successful sensor read: calculate and apply new duty cycle
                 calculate_fan_duty(&s_fan, humidity);
                 apply_fan_duty(&s_fan);
                 ESP_LOGI(LOG_TAG, "Temperature = %d, Humidity = %d", temperature, humidity);
             }
-            else
+        }
+        else
+        {
+            // Sensor read failed: fallback to minimum speed in AUTO mode
+            if (s_fan.control_mode == FAN_MODE_AUTO)
             {
-                // Sensor read failed: fallback to minimum speed
                 s_fan.duty = FAN_PWM_DUTY_MIN;
                 apply_fan_duty(&s_fan);
                 ESP_LOGW(LOG_TAG, "DHT sensor read failed, using minimum fan speed");
@@ -247,6 +257,16 @@ int16_t fan_controller_get_max_humidity(void)
 fan_control_mode_t fan_controller_get_mode(void)
 {
     return s_fan.control_mode;
+}
+
+int16_t fan_controller_get_current_humidity(void)
+{
+    return s_current_humidity;
+}
+
+int16_t fan_controller_get_current_temperature(void)
+{
+    return s_current_temperature;
 }
 
 esp_err_t fan_controller_set_current_duty(uint32_t duty)
