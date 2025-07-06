@@ -43,10 +43,15 @@ void app_main(void)
         ESP_LOGI(LOG_TAG, "NVS initialized");
     }
 
-    fan_controller_init();
+    ret = fan_controller_init();
     if (ret == ESP_OK)
     {
         ESP_LOGI(LOG_TAG, "Fan controller initialized");
+    }
+    else
+    {
+        ESP_LOGE(LOG_TAG, "Fan controller initialization failed: %s", esp_err_to_name(ret));
+        return;
     }
 
     ret = ble_control_init();
@@ -56,7 +61,12 @@ void app_main(void)
     }
     else
     {
-        ESP_LOGI(LOG_TAG, "BLE error %d\n", ret);
+        ESP_LOGE(LOG_TAG, "BLE controller initialization failed: %s", esp_err_to_name(ret));
+        return;
     }
+    
+    ESP_LOGI(LOG_TAG, "SmartFan system initialized successfully");
+    ESP_LOGI(LOG_TAG, "Connect to BLE device 'SmartFan-BLE' to control the fan");
+    
     vTaskSuspend(NULL);
 }

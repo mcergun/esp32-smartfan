@@ -1,4 +1,7 @@
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdarg.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -11,22 +14,140 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 #include "sdkconfig.h"
+#include "fan_controller.h"
 
 char *TAG = "BLE-Server";
 uint8_t ble_addr_type;
 void ble_app_advertise(void);
 
-// Should respond to commands like:
-// SET AUTO -> fan auto mode
-// SET 500 -> set fan 50%
-// GET DUTY -> get duty percent
-// GET MAX -> gets max humidity in algorithm
-// GET MIN -> gets min humidity in algorithm
+// Global variable to store the last status message for BLE read operations
+static char status_message[256];
+static SemaphoreHandle_t status_mutex;
+
+// Helper function to update status message
+static void update_status_message(const char* format, ...)
+{
+    if (xSemaphoreTake(status_mutex, pdMS_TO_TICKS(100)) == pdTRUE)
+    {
+        va_list args;
+        va_start(args, format);
+        vsnprintf(status_message, sizeof(status_message), format, args);
+        va_end(args);
+        xSemaphoreGive(status_mutex);
+    }
+}
+
+// Process fan control commands
 static int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
-    // char * data = (char *)ctxt->om->om_data;
-    // (void)data;
-    printf("Data from the client: %.*s\n", ctxt->om->om_len, ctxt->om->om_data);
+    char *data = (char *)ctxt->om->om_data;
+    esp_err_t ret = ESP_OK;
+    
+    ESP_LOGI(TAG, "Received command: %.*s", ctxt->om->om_len, data);
+    
+    // Fan control commands
+    const char *cmd_auto = "SET AUTO";
+    const char *cmd_manual = "SET MANUAL";
+    size_t len_auto = strlen(cmd_auto);
+    size_t len_manual = strlen(cmd_manual);
+
+    if ((ctxt->om->om_len >= len_auto && memcmp(data, cmd_auto, len_auto) == 0 &&
+         (ctxt->om->om_len == len_auto || data[len_auto] == '\0' || data[len_auto] == ' ')))
+    {
+        ret = fan_controller_set_mode(FAN_MODE_AUTO);
+        if (ret == ESP_OK) {
+            update_status_message("Fan mode set to AUTO");
+            ESP_LOGI(TAG, "Fan mode set to AUTO");
+        } else {
+            update_status_message("Failed to set fan mode to AUTO");
+            ESP_LOGE(TAG, "Failed to set fan mode to AUTO: %s", esp_err_to_name(ret));
+        }
+    }
+    else if ((ctxt->om->om_len >= len_manual && memcmp(data, cmd_manual, len_manual) == 0 &&
+              (ctxt->om->om_len == len_manual || data[len_manual] == '\0' || data[len_manual] == ' ')))
+    {
+        ret = fan_controller_set_mode(FAN_MODE_MANUAL);
+        if (ret == ESP_OK) {
+            update_status_message("Fan mode set to MANUAL");
+            ESP_LOGI(TAG, "Fan mode set to MANUAL");
+        } else {
+            update_status_message("Failed to set fan mode to MANUAL");
+            ESP_LOGE(TAG, "Failed to set fan mode to MANUAL: %s", esp_err_to_name(ret));
+        }
+    }
+    else if (ctxt->om->om_len >= 4 && memcmp(data, "SET ", 4) == 0) {
+        // Copy and null-terminate for further parsing
+        char cmd[32];
+        size_t len = ctxt->om->om_len < sizeof(cmd)-1 ? ctxt->om->om_len : sizeof(cmd)-1;
+        memcpy(cmd, data, len);
+        cmd[len] = '\0';
+        // Now parse cmd+4 for the value
+        int speed_percent = atoi(cmd + 4);
+        if (speed_percent >= 0 && speed_percent <= 100) {
+            ret = fan_controller_set_current_duty(speed_percent * 10);
+            if (ret == ESP_OK) {
+                update_status_message("Fan speed set to %d", speed_percent);
+                ESP_LOGI(TAG, "Fan speed set to %d", speed_percent);
+            } else {
+                update_status_message("Failed to set fan speed");
+                ESP_LOGE(TAG, "Failed to set fan speed: %s", esp_err_to_name(ret));
+            }
+        } else {
+            update_status_message("Invalid speed value (0-1000)");
+            ESP_LOGE(TAG, "Invalid speed value: %d", speed_percent);
+        }
+    }
+    else if (ctxt->om->om_len >= 8 && memcmp(data, "SET MIN ", 8) == 0) {
+        char cmd[32];
+        size_t len = ctxt->om->om_len < sizeof(cmd)-1 ? ctxt->om->om_len : sizeof(cmd)-1;
+        memcpy(cmd, data, len);
+        cmd[len] = '\0';
+        int humidity = atoi(cmd + 8);
+        if (humidity >= 0 && humidity <= 1000) {
+            ret = fan_controller_set_min_humidity(humidity);
+            if (ret == ESP_OK) {
+                update_status_message("Min humidity set to %d.%d%%", humidity / 10, humidity % 10);
+                ESP_LOGI(TAG, "Min humidity set to %d.%d%%", humidity / 10, humidity % 10);
+            } else {
+                update_status_message("Failed to set min humidity");
+                ESP_LOGE(TAG, "Failed to set min humidity: %s", esp_err_to_name(ret));
+            }
+        } else {
+            update_status_message("Invalid humidity value (0-1000)");
+            ESP_LOGE(TAG, "Invalid humidity value: %d", humidity);
+        }
+    }
+    else if (ctxt->om->om_len >= 8 && memcmp(data, "SET MAX ", 8) == 0) {
+        char cmd[32];
+        size_t len = ctxt->om->om_len < sizeof(cmd)-1 ? ctxt->om->om_len : sizeof(cmd)-1;
+        memcpy(cmd, data, len);
+        cmd[len] = '\0';
+        int humidity = atoi(cmd + 8);
+        if (humidity >= 0 && humidity <= 1000) {
+            ret = fan_controller_set_max_humidity(humidity);
+            if (ret == ESP_OK) {
+                update_status_message("Max humidity set to %d.%d%%", humidity / 10, humidity % 10);
+                ESP_LOGI(TAG, "Max humidity set to %d.%d%%", humidity / 10, humidity % 10);
+            } else {
+                update_status_message("Failed to set max humidity");
+                ESP_LOGE(TAG, "Failed to set max humidity: %s", esp_err_to_name(ret));
+            }
+        } else {
+            update_status_message("Invalid humidity value (0-1000)");
+            ESP_LOGE(TAG, "Invalid humidity value: %d", humidity);
+        }
+    }
+    else if (ctxt->om->om_len >= 10 && memcmp(data, "GET STATUS", 10) == 0 &&
+             (ctxt->om->om_len == 10 || data[10] == '\0' || data[10] == ' '))
+    {
+        // Status will be returned in the read operation
+        ESP_LOGI(TAG, "Fan status requested");
+    }
+    else
+    {
+        update_status_message("Unknown command: %.*s", ctxt->om->om_len, data);
+        ESP_LOGW(TAG, "Unknown command: %.*s", ctxt->om->om_len, data);
+    }
     
     return 0;
 }
@@ -34,7 +155,25 @@ static int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_g
 // Read data from ESP32 defined as server
 static int device_read(uint16_t con_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
-    os_mbuf_append(ctxt->om, "Data from the server", strlen("Data from the server"));
+    char response[512];
+    
+    // Get current fan status
+    uint16_t current_duty = fan_controller_get_current_duty();
+    fan_control_mode_t mode = fan_controller_get_mode();
+    int16_t min_humidity = fan_controller_get_min_humidity();
+    int16_t max_humidity = fan_controller_get_max_humidity();
+    
+    // Format status response
+    snprintf(response, sizeof(response), 
+             "Fan: %s, Speed: %d.%d%%, Mode: %s, Min_Humidity: %d.%d%%, Max_Humidity: %d.%d%%, Status: %s",
+             current_duty > 0 ? "ON" : "OFF",
+             current_duty / 10, current_duty % 10,
+             mode == FAN_MODE_AUTO ? "AUTO" : "MANUAL",
+             min_humidity / 10, min_humidity % 10,
+             max_humidity / 10, max_humidity % 10,
+             status_message);
+    
+    os_mbuf_append(ctxt->om, response, strlen(response));
     return 0;
 }
 
@@ -115,12 +254,21 @@ void host_task(void *param)
     nimble_port_run(); // This function will return only when nimble_port_stop() is executed
 }
 
-
 esp_err_t ble_control_init(void)
 {
+    // Initialize status mutex
+    status_mutex = xSemaphoreCreateMutex();
+    if (status_mutex == NULL) {
+        ESP_LOGE(TAG, "Failed to create status mutex");
+        return ESP_FAIL;
+    }
+    
+    // Initialize status message
+    strcpy(status_message, "BLE Controller initialized");
+    
     // esp_nimble_hci_and_controller_init();      // 2 - Initialize ESP controller
     nimble_port_init();                        // 3 - Initialize the host stack
-    ble_svc_gap_device_name_set("BLE-Server"); // 4 - Initialize NimBLE configuration - server name
+    ble_svc_gap_device_name_set("SmartFan-BLE"); // 4 - Initialize NimBLE configuration - server name
     ble_svc_gap_init();                        // 4 - Initialize NimBLE configuration - gap service
     ble_svc_gatt_init();                       // 4 - Initialize NimBLE configuration - gatt service
     ble_gatts_count_cfg(gatt_svcs);            // 4 - Initialize NimBLE configuration - config gatt services
