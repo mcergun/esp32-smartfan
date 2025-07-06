@@ -9,20 +9,6 @@ extern "C" {
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
-// No longer needs to include main.h for fan_control_state_t
-
-// PWM Defines (Public for components that need to interact with fan's PWM)
-#define FAN_PWM_FREQ        (25 * 1000)
-#define FAN_PWM_TIMER       LEDC_TIMER_0
-#define FAN_PWM_SPEED       LEDC_LOW_SPEED_MODE
-#define FAN_PWM_CHANNEL     LEDC_CHANNEL_0
-#define FAN_PWM_DUTY_RES    LEDC_TIMER_10_BIT
-#define FAN_PWM_DUTY_MAX    ((0x1u << ((size_t)FAN_PWM_DUTY_RES)) - 1)
-#define FAN_PWM_DUTY_MIN    (4 * FAN_PWM_DUTY_MAX / 10)
-#define FAN_GPIO            GPIO_NUM_8
-
-#define DHT22_GPIO          GPIO_NUM_10
-#define DHT22_SENSOR_TYPE   DHT_TYPE_AM2301
 
 typedef struct fan_control_state
 {
