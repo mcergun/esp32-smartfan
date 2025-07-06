@@ -44,15 +44,10 @@ fan_control_state_t* fan_controller_get_state_ptr(void);
 /// @return SemaphoreHandle_t for the fan control mutex.
 SemaphoreHandle_t fan_controller_get_mutex_handle(void);
 
-/// @brief Function to calculate fan duty (can be called by internal task or external source like BLE)
-///        Note: This function now takes humidity and operates on the internal s_fan_state
-/// @param humidity Current humidity level * 10
-void fan_controller_calculate_duty(int16_t humidity);
-
 uint32_t fan_controller_get_max_duty(void);
 uint32_t fan_controller_get_current_duty(void);
-int16_t fan_controller_get_min_humidty(void);
-int16_t fan_controller_get_max_humidty(void);
+int16_t fan_controller_get_min_humidity(void);
+int16_t fan_controller_get_max_humidity(void);
 fan_control_mode_t fan_controller_get_mode(void);
 
 esp_err_t fan_controller_set_current_duty(uint32_t duty);

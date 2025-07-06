@@ -73,17 +73,21 @@ esp_err_t init_pwm_controller(void)
 
 void calculate_fan_duty(fan_control_state_t *fan, int16_t humidity)
 {
-    if (humidity < fan->humidity_min)
+    if (xSemaphoreTake(s_fan_control_mutex, SEMAPHORE_TIMEOUT_TICKS) == pdTRUE)
     {
-        fan->duty = FAN_PWM_DUTY_MIN;
-    }
-    else if (humidity > fan->humidity_max)
-    {
-        fan->duty = FAN_PWM_DUTY_MAX;
-    }
-    else
-    {
-        fan->duty = ((humidity - fan->humidity_min) * (FAN_PWM_DUTY_MAX - FAN_PWM_DUTY_MIN)) / fan->steps + FAN_PWM_DUTY_MIN;
+        if (humidity < fan->humidity_min)
+        {
+            fan->duty = FAN_PWM_DUTY_MIN;
+        }
+        else if (humidity > fan->humidity_max)
+        {
+            fan->duty = FAN_PWM_DUTY_MAX;
+        }
+        else
+        {
+            fan->duty = ((humidity - fan->humidity_min) * (FAN_PWM_DUTY_MAX - FAN_PWM_DUTY_MIN)) / fan->steps + FAN_PWM_DUTY_MIN;
+        }
+        xSemaphoreGive(s_fan_control_mutex);
     }
 }
 
@@ -103,20 +107,25 @@ void task_fan_control(void *)
     while (1)
     {
         ret = dht_read_data(DHT22_SENSOR_TYPE, DHT22_GPIO, &humidity, &temperature);
-        if (ret == ESP_OK)
+        if (s_fan.control_mode == FAN_MODE_AUTO) 
         {
-            calculate_fan_duty(&s_fan, humidity);
-            apply_fan_duty(&s_fan);
             if (ret == ESP_OK)
             {
-                ESP_LOGI(LOG_TAG, "Temperature = %d, Humidity = %d", temperature, humidity);
+                calculate_fan_duty(&s_fan, humidity);
+                apply_fan_duty(&s_fan);
+                if (ret == ESP_OK)
+                {
+                    ESP_LOGI(LOG_TAG, "Temperature = %d, Humidity = %d", temperature, humidity);
+                }
+            }
+            else
+            {
+                // Can't read value, use minimum value as a fall-back
+                s_fan.duty = FAN_PWM_DUTY_MIN;
+                apply_fan_duty(&s_fan);
             }
         }
-        else
-        {
-            s_fan.duty = FAN_PWM_DUTY_MIN;
-            apply_fan_duty(&s_fan);
-        }
+        // Else, fan duty must be set while mode is changed from AUTO to MANUAL
         vTaskDelay(delay_ticks);
     }
 }
@@ -157,17 +166,12 @@ esp_err_t fan_controller_init(void)
 
 fan_control_state_t *fan_controller_get_state_ptr(void)
 {
-    return NULL;
+    return &s_fan;
 }
 
 SemaphoreHandle_t fan_controller_get_mutex_handle(void)
 {
-    return NULL;
-}
-
-void fan_controller_calculate_duty(int16_t humidity)
-{
-    (void)humidity;
+    return s_fan_control_mutex;
 }
 
 uint32_t fan_controller_get_max_duty(void)
@@ -205,6 +209,7 @@ esp_err_t fan_controller_set_current_duty(uint32_t duty)
     {
         s_fan.control_mode = FAN_MODE_MANUAL;
         s_fan.duty = duty;
+        apply_fan_duty(&s_fan);
         xSemaphoreGive(s_fan_control_mutex);
         return ESP_OK;
     }
@@ -214,7 +219,7 @@ esp_err_t fan_controller_set_current_duty(uint32_t duty)
     }
 }
 
-esp_err_t fan_controller_set_min_humidty(int16_t humidity)
+esp_err_t fan_controller_set_min_humidity(int16_t humidity)
 {
     if (humidity < 0 || humidity > 1000)
     {
@@ -223,6 +228,7 @@ esp_err_t fan_controller_set_min_humidty(int16_t humidity)
     if (xSemaphoreTake(s_fan_control_mutex, SEMAPHORE_TIMEOUT_TICKS) == pdTRUE)
     {
         s_fan.humidity_min = humidity;
+        s_fan.steps = s_fan.humidity_max - s_fan.humidity_min;
         xSemaphoreGive(s_fan_control_mutex);
         return ESP_OK;
     }
@@ -232,7 +238,7 @@ esp_err_t fan_controller_set_min_humidty(int16_t humidity)
     }
 }
 
-esp_err_t fan_controller_set_max_humidty(int16_t humidity)
+esp_err_t fan_controller_set_max_humidity(int16_t humidity)
 {
     if (humidity < 0 || humidity > 1000)
     {
@@ -241,6 +247,7 @@ esp_err_t fan_controller_set_max_humidty(int16_t humidity)
     if (xSemaphoreTake(s_fan_control_mutex, SEMAPHORE_TIMEOUT_TICKS) == pdTRUE)
     {
         s_fan.humidity_max = humidity;
+        s_fan.steps = s_fan.humidity_max - s_fan.humidity_min;
         xSemaphoreGive(s_fan_control_mutex);
         return ESP_OK;
     }
