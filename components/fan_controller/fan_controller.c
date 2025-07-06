@@ -24,13 +24,16 @@
 #define DHT22_GPIO GPIO_NUM_10
 #define DHT22_SENSOR_TYPE DHT_TYPE_AM2301
 
+#define SEMAPHORE_TIMEOUT_MS 100
+#define SEMAPHORE_TIMEOUT_TICKS pdMS_TO_TICKS(SEMAPHORE_TIMEOUT_MS)
+
 static esp_err_t init_pwm_controller(void);
 static void calculate_fan_duty(fan_control_state_t *fan, int16_t humidity);
 static void apply_fan_duty(fan_control_state_t *fan);
 static void task_fan_control(void *);
 
 fan_control_state_t s_fan = {
-    .humidty_min = 30 * 10,
+    .humidity_min = 30 * 10,
     .humidity_max = 70 * 10,
     .steps = (70 - 30) * 10,
     .duty = 0,
@@ -70,7 +73,7 @@ esp_err_t init_pwm_controller(void)
 
 void calculate_fan_duty(fan_control_state_t *fan, int16_t humidity)
 {
-    if (humidity < fan->humidty_min)
+    if (humidity < fan->humidity_min)
     {
         fan->duty = FAN_PWM_DUTY_MIN;
     }
@@ -80,7 +83,7 @@ void calculate_fan_duty(fan_control_state_t *fan, int16_t humidity)
     }
     else
     {
-        fan->duty = ((humidity - fan->humidty_min) * (FAN_PWM_DUTY_MAX - FAN_PWM_DUTY_MIN)) / fan->steps + FAN_PWM_DUTY_MIN;
+        fan->duty = ((humidity - fan->humidity_min) * (FAN_PWM_DUTY_MAX - FAN_PWM_DUTY_MIN)) / fan->steps + FAN_PWM_DUTY_MIN;
     }
 }
 
@@ -116,11 +119,6 @@ void task_fan_control(void *)
         }
         vTaskDelay(delay_ticks);
     }
-}
-
-uint32_t fan_controller_get_max_duty(void)
-{
-    return 0;
 }
 
 esp_err_t fan_controller_init(void)
@@ -170,4 +168,98 @@ SemaphoreHandle_t fan_controller_get_mutex_handle(void)
 void fan_controller_calculate_duty(int16_t humidity)
 {
     (void)humidity;
+}
+
+uint32_t fan_controller_get_max_duty(void)
+{
+    return FAN_PWM_DUTY_MAX;
+}
+
+uint32_t fan_controller_get_current_duty(void)
+{
+    return s_fan.duty;
+}
+
+int16_t fan_controller_get_min_humidity(void)
+{
+    return s_fan.humidity_min;
+}
+
+int16_t fan_controller_get_max_humidity(void)
+{
+    return s_fan.humidity_max;
+}
+
+fan_control_mode_t fan_controller_get_mode(void)
+{
+    return s_fan.control_mode;
+}
+
+esp_err_t fan_controller_set_current_duty(uint32_t duty)
+{
+    if (duty < FAN_PWM_DUTY_MIN || duty > FAN_PWM_DUTY_MAX)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (xSemaphoreTake(s_fan_control_mutex, SEMAPHORE_TIMEOUT_TICKS) == pdTRUE)
+    {
+        s_fan.control_mode = FAN_MODE_MANUAL;
+        s_fan.duty = duty;
+        xSemaphoreGive(s_fan_control_mutex);
+        return ESP_OK;
+    }
+    else
+    {
+        return ESP_ERR_TIMEOUT;
+    }
+}
+
+esp_err_t fan_controller_set_min_humidty(int16_t humidity)
+{
+    if (humidity < 0 || humidity > 1000)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (xSemaphoreTake(s_fan_control_mutex, SEMAPHORE_TIMEOUT_TICKS) == pdTRUE)
+    {
+        s_fan.humidity_min = humidity;
+        xSemaphoreGive(s_fan_control_mutex);
+        return ESP_OK;
+    }
+    else
+    {
+        return ESP_ERR_TIMEOUT;
+    }
+}
+
+esp_err_t fan_controller_set_max_humidty(int16_t humidity)
+{
+    if (humidity < 0 || humidity > 1000)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (xSemaphoreTake(s_fan_control_mutex, SEMAPHORE_TIMEOUT_TICKS) == pdTRUE)
+    {
+        s_fan.humidity_max = humidity;
+        xSemaphoreGive(s_fan_control_mutex);
+        return ESP_OK;
+    }
+    else
+    {
+        return ESP_ERR_TIMEOUT;
+    }
+}
+
+esp_err_t fan_controller_set_mode(fan_control_mode_t mode)
+{
+    if (xSemaphoreTake(s_fan_control_mutex, SEMAPHORE_TIMEOUT_TICKS) == pdTRUE)
+    {
+        s_fan.control_mode = mode;
+        xSemaphoreGive(s_fan_control_mutex);
+        return ESP_OK;
+    }
+    else
+    {
+        return ESP_ERR_TIMEOUT;
+    }
 }

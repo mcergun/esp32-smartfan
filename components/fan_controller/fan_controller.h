@@ -10,10 +10,16 @@ extern "C" {
 #include <freertos/task.h>
 #include <freertos/semphr.h>
 
+typedef enum fan_control_mode
+{
+    FAN_MODE_AUTO,
+    FAN_MODE_MANUAL,
+} fan_control_mode_t;
+
 typedef struct fan_control_state
 {
     /// @brief minimum humidity value * 10 for fan to start working
-    int16_t humidty_min;
+    int16_t humidity_min;
     /// @brief maximum humidty value * 10 for max fan cycles
     int16_t humidity_max;
     /// @brief granularity of fan control steps
@@ -21,7 +27,7 @@ typedef struct fan_control_state
     /// @brief current duty of fan
     uint32_t duty;
     /// @brief current control mode (0: Auto, 1: Manual/BLE)
-    uint8_t control_mode;
+    fan_control_mode_t control_mode;
 } fan_control_state_t;
 
 /// @brief Initializes the fan controller, including PWM and creates the control task.
@@ -42,6 +48,17 @@ SemaphoreHandle_t fan_controller_get_mutex_handle(void);
 ///        Note: This function now takes humidity and operates on the internal s_fan_state
 /// @param humidity Current humidity level * 10
 void fan_controller_calculate_duty(int16_t humidity);
+
+uint32_t fan_controller_get_max_duty(void);
+uint32_t fan_controller_get_current_duty(void);
+int16_t fan_controller_get_min_humidty(void);
+int16_t fan_controller_get_max_humidty(void);
+fan_control_mode_t fan_controller_get_mode(void);
+
+esp_err_t fan_controller_set_current_duty(uint32_t duty);
+esp_err_t fan_controller_set_min_humidity(int16_t humidity);
+esp_err_t fan_controller_set_max_humidity(int16_t humidity);
+esp_err_t fan_controller_set_mode(fan_control_mode_t mode);
 
 #ifdef __cplusplus
 }
