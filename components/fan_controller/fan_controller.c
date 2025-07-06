@@ -12,17 +12,17 @@
 #define LOG_TAG "FAN_CTRL_COMP"
 
 // PWM Defines (Public for components that need to interact with fan's PWM)
-#define FAN_PWM_FREQ        (25 * 1000)
-#define FAN_PWM_TIMER       LEDC_TIMER_0
-#define FAN_PWM_SPEED       LEDC_LOW_SPEED_MODE
-#define FAN_PWM_CHANNEL     LEDC_CHANNEL_0
-#define FAN_PWM_DUTY_RES    LEDC_TIMER_10_BIT
-#define FAN_PWM_DUTY_MAX    ((0x1u << ((size_t)FAN_PWM_DUTY_RES)) - 1)
-#define FAN_PWM_DUTY_MIN    (4 * FAN_PWM_DUTY_MAX / 10)
-#define FAN_GPIO            GPIO_NUM_8
+#define FAN_PWM_FREQ (25 * 1000)
+#define FAN_PWM_TIMER LEDC_TIMER_0
+#define FAN_PWM_SPEED LEDC_LOW_SPEED_MODE
+#define FAN_PWM_CHANNEL LEDC_CHANNEL_0
+#define FAN_PWM_DUTY_RES LEDC_TIMER_10_BIT
+#define FAN_PWM_DUTY_MAX ((0x1u << ((size_t)FAN_PWM_DUTY_RES)) - 1)
+#define FAN_PWM_DUTY_MIN (4 * FAN_PWM_DUTY_MAX / 10)
+#define FAN_GPIO GPIO_NUM_8
 
-#define DHT22_GPIO          GPIO_NUM_10
-#define DHT22_SENSOR_TYPE   DHT_TYPE_AM2301
+#define DHT22_GPIO GPIO_NUM_10
+#define DHT22_SENSOR_TYPE DHT_TYPE_AM2301
 
 static esp_err_t init_pwm_controller(void);
 static void calculate_fan_duty(fan_control_state_t *fan, int16_t humidity);
@@ -157,7 +157,7 @@ esp_err_t fan_controller_init(void)
     return ESP_OK;
 }
 
-fan_control_state_t* fan_controller_get_state_ptr(void)
+fan_control_state_t *fan_controller_get_state_ptr(void)
 {
     return NULL;
 }
@@ -171,4 +171,3 @@ void fan_controller_calculate_duty(int16_t humidity)
 {
     (void)humidity;
 }
-
