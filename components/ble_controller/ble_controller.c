@@ -160,17 +160,17 @@ static int device_read(uint16_t con_handle, uint16_t attr_handle, struct ble_gat
     // Get current fan status
     uint16_t current_duty = fan_controller_get_current_duty();
     fan_control_mode_t mode = fan_controller_get_mode();
-    int16_t min_humidity = fan_controller_get_min_humidity();
-    int16_t max_humidity = fan_controller_get_max_humidity();
+    int16_t current_temperature = fan_controller_get_current_temperature();
+    int16_t current_humidity = fan_controller_get_current_humidity();
     
     // Format status response
     snprintf(response, sizeof(response), 
-             "Fan: %s, Speed: %d.%d%%, Mode: %s, Min_Humidity: %d.%d%%, Max_Humidity: %d.%d%%, Status: %s",
+             "Fan: %s, Speed: %d.%d%%, Mode: %s, Temperature: %d.%dC, Humidity: %d.%d%%, Status: %s",
              current_duty > 0 ? "ON" : "OFF",
              current_duty / 10, current_duty % 10,
              mode == FAN_MODE_AUTO ? "AUTO" : "MANUAL",
-             min_humidity / 10, min_humidity % 10,
-             max_humidity / 10, max_humidity % 10,
+             current_temperature / 10, current_temperature % 10,
+             current_humidity / 10, current_humidity % 10,
              status_message);
     
     os_mbuf_append(ctxt->om, response, strlen(response));
