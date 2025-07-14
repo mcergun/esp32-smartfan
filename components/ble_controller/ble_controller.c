@@ -75,6 +75,48 @@ static int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_g
             ESP_LOGE(TAG, "Failed to set fan mode to MANUAL: %s", esp_err_to_name(ret));
         }
     }
+    else if (ctxt->om->om_len >= 8 && memcmp(data, "SET MIN ", 8) == 0) {
+        char cmd[32];
+        size_t len = ctxt->om->om_len < sizeof(cmd)-1 ? ctxt->om->om_len : sizeof(cmd)-1;
+        memcpy(cmd, data, len);
+        cmd[len] = '\0';
+        int humidity = atoi(cmd + 8);
+        if (humidity >= 0 && humidity <= 100) {
+            int humidity_internal = humidity * 10;
+            ret = fan_controller_set_min_humidity(humidity_internal);
+            if (ret == ESP_OK) {
+                update_status_message("Min humidity set to %d.0%%", humidity);
+                ESP_LOGI(TAG, "Min humidity set to %d.0%%", humidity);
+            } else {
+                update_status_message("Failed to set min humidity");
+                ESP_LOGE(TAG, "Failed to set min humidity: %s", esp_err_to_name(ret));
+            }
+        } else {
+            update_status_message("Invalid humidity value (0-100)");
+            ESP_LOGE(TAG, "Invalid humidity value: %d", humidity);
+        }
+    }
+    else if (ctxt->om->om_len >= 8 && memcmp(data, "SET MAX ", 8) == 0) {
+        char cmd[32];
+        size_t len = ctxt->om->om_len < sizeof(cmd)-1 ? ctxt->om->om_len : sizeof(cmd)-1;
+        memcpy(cmd, data, len);
+        cmd[len] = '\0';
+        int humidity = atoi(cmd + 8);
+        if (humidity >= 0 && humidity <= 100) {
+            int humidity_internal = humidity * 10;
+            ret = fan_controller_set_max_humidity(humidity_internal);
+            if (ret == ESP_OK) {
+                update_status_message("Max humidity set to %d.0%%", humidity);
+                ESP_LOGI(TAG, "Max humidity set to %d.0%%", humidity);
+            } else {
+                update_status_message("Failed to set max humidity");
+                ESP_LOGE(TAG, "Failed to set max humidity: %s", esp_err_to_name(ret));
+            }
+        } else {
+            update_status_message("Invalid humidity value (0-100)");
+            ESP_LOGE(TAG, "Invalid humidity value: %d", humidity);
+        }
+    }
     else if (ctxt->om->om_len >= 4 && memcmp(data, "SET ", 4) == 0) {
         // Copy and null-terminate for further parsing
         char cmd[32];
@@ -95,46 +137,6 @@ static int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_g
         } else {
             update_status_message("Invalid speed value (0-1000)");
             ESP_LOGE(TAG, "Invalid speed value: %d", speed_percent);
-        }
-    }
-    else if (ctxt->om->om_len >= 8 && memcmp(data, "SET MIN ", 8) == 0) {
-        char cmd[32];
-        size_t len = ctxt->om->om_len < sizeof(cmd)-1 ? ctxt->om->om_len : sizeof(cmd)-1;
-        memcpy(cmd, data, len);
-        cmd[len] = '\0';
-        int humidity = atoi(cmd + 8);
-        if (humidity >= 0 && humidity <= 1000) {
-            ret = fan_controller_set_min_humidity(humidity);
-            if (ret == ESP_OK) {
-                update_status_message("Min humidity set to %d.%d%%", humidity / 10, humidity % 10);
-                ESP_LOGI(TAG, "Min humidity set to %d.%d%%", humidity / 10, humidity % 10);
-            } else {
-                update_status_message("Failed to set min humidity");
-                ESP_LOGE(TAG, "Failed to set min humidity: %s", esp_err_to_name(ret));
-            }
-        } else {
-            update_status_message("Invalid humidity value (0-1000)");
-            ESP_LOGE(TAG, "Invalid humidity value: %d", humidity);
-        }
-    }
-    else if (ctxt->om->om_len >= 8 && memcmp(data, "SET MAX ", 8) == 0) {
-        char cmd[32];
-        size_t len = ctxt->om->om_len < sizeof(cmd)-1 ? ctxt->om->om_len : sizeof(cmd)-1;
-        memcpy(cmd, data, len);
-        cmd[len] = '\0';
-        int humidity = atoi(cmd + 8);
-        if (humidity >= 0 && humidity <= 1000) {
-            ret = fan_controller_set_max_humidity(humidity);
-            if (ret == ESP_OK) {
-                update_status_message("Max humidity set to %d.%d%%", humidity / 10, humidity % 10);
-                ESP_LOGI(TAG, "Max humidity set to %d.%d%%", humidity / 10, humidity % 10);
-            } else {
-                update_status_message("Failed to set max humidity");
-                ESP_LOGE(TAG, "Failed to set max humidity: %s", esp_err_to_name(ret));
-            }
-        } else {
-            update_status_message("Invalid humidity value (0-1000)");
-            ESP_LOGE(TAG, "Invalid humidity value: %d", humidity);
         }
     }
     else if (ctxt->om->om_len >= 10 && memcmp(data, "GET STATUS", 10) == 0 &&
