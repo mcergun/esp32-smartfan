@@ -5,6 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
+#include "freertos/semphr.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_nimble_hci.h"
@@ -24,6 +25,45 @@ void ble_app_advertise(void);
 static char status_message[256];
 static SemaphoreHandle_t status_mutex;
 
+// Session authentication state
+#define MAX_BLE_CONNECTIONS 8
+static struct {
+    uint16_t conn_handle;
+    bool authenticated;
+} session_auth[MAX_BLE_CONNECTIONS];
+static SemaphoreHandle_t session_mutex;
+
+// Track the single allowed connection
+static uint16_t active_conn_handle = 0;
+static bool active_authenticated = false;
+
+static void session_auth_reset(uint16_t conn_handle) {
+    if (!session_mutex) return;
+    xSemaphoreTake(session_mutex, portMAX_DELAY);
+    if (active_conn_handle == conn_handle) {
+        active_authenticated = false;
+        active_conn_handle = 0;
+    }
+    xSemaphoreGive(session_mutex);
+}
+static void session_auth_set(uint16_t conn_handle) {
+    if (!session_mutex) return;
+    xSemaphoreTake(session_mutex, portMAX_DELAY);
+    active_conn_handle = conn_handle;
+    active_authenticated = true;
+    xSemaphoreGive(session_mutex);
+}
+static bool session_auth_check(uint16_t conn_handle) {
+    if (!session_mutex) return false;
+    bool result = false;
+    xSemaphoreTake(session_mutex, portMAX_DELAY);
+    if (active_conn_handle == conn_handle && active_authenticated) {
+        result = true;
+    }
+    xSemaphoreGive(session_mutex);
+    return result;
+}
+
 // Helper function to update status message
 static void update_status_message(const char* format, ...)
 {
@@ -42,7 +82,20 @@ static int device_write(uint16_t conn_handle, uint16_t attr_handle, struct ble_g
 {
     char *data = (char *)ctxt->om->om_data;
     esp_err_t ret = ESP_OK;
-    
+    // Passcode check
+    const char *keypass = "KEY mcergun";
+    size_t keypass_len = strlen(keypass);
+    if (ctxt->om->om_len >= keypass_len && memcmp(data, keypass, keypass_len) == 0 &&
+        (ctxt->om->om_len == keypass_len || data[keypass_len] == '\0' || data[keypass_len] == ' ')) {
+        session_auth_set(conn_handle);
+        update_status_message("Session authenticated");
+        ESP_LOGI(TAG, "Session authenticated for conn_handle=%u", conn_handle);
+        return 0;
+    }
+    if (!session_auth_check(conn_handle)) {
+        // Not authenticated, ignore all except keypass
+        return 0;
+    }
     ESP_LOGI(TAG, "Received command: %.*s", ctxt->om->om_len, data);
     
     // Fan control commands
@@ -199,17 +252,28 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
 {
     switch (event->type)
     {
-    // Advertise if connected
     case BLE_GAP_EVENT_CONNECT:
         ESP_LOGI("GAP", "BLE GAP EVENT CONNECT %s", event->connect.status == 0 ? "OK!" : "FAILED!");
-        if (event->connect.status != 0)
-        {
+        if (event->connect.status == 0) {
+            // If already connected, disconnect the new one
+            xSemaphoreTake(session_mutex, portMAX_DELAY);
+            if (active_conn_handle != 0) {
+                uint16_t new_conn = event->connect.conn_handle;
+                xSemaphoreGive(session_mutex);
+                ESP_LOGI("GAP", "Rejecting new connection: already connected");
+                ble_gap_terminate(new_conn, BLE_ERR_REM_USER_CONN_TERM);
+            } else {
+                active_conn_handle = event->connect.conn_handle;
+                active_authenticated = false;
+                xSemaphoreGive(session_mutex);
+            }
+        } else {
             ble_app_advertise();
         }
         break;
-    // Advertise again after completion of the event
     case BLE_GAP_EVENT_DISCONNECT:
         ESP_LOGI("GAP", "BLE GAP EVENT DISCONNECTED");
+        session_auth_reset(event->disconnect.conn.conn_handle);
         ble_app_advertise();
         break;
     case BLE_GAP_EVENT_ADV_COMPLETE:
@@ -267,6 +331,15 @@ esp_err_t ble_control_init(void)
     
     // Initialize status message
     strcpy(status_message, "BLE Controller initialized");
+    
+    session_mutex = xSemaphoreCreateMutex();
+    if (session_mutex == NULL) {
+        ESP_LOGE(TAG, "Failed to create session mutex");
+        return ESP_FAIL;
+    }
+    memset(session_auth, 0, sizeof(session_auth));
+    active_conn_handle = 0;
+    active_authenticated = false;
     
     // esp_nimble_hci_and_controller_init();      // 2 - Initialize ESP controller
     nimble_port_init();                        // 3 - Initialize the host stack
