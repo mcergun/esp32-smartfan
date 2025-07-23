@@ -6,6 +6,7 @@
 #include "driver/ledc.h"
 #include "esp_log.h"
 #include "esp_err.h"
+#include "nvs_flash.h"
 
 #include "dht.h"
 
@@ -18,7 +19,7 @@
 #define FAN_PWM_CHANNEL LEDC_CHANNEL_0
 #define FAN_PWM_DUTY_RES LEDC_TIMER_10_BIT
 #define FAN_PWM_DUTY_MAX ((0x1u << ((size_t)FAN_PWM_DUTY_RES)) - 1)
-#define FAN_PWM_DUTY_MIN (4 * FAN_PWM_DUTY_MAX / 10)
+#define FAN_PWM_DUTY_MIN (6 * FAN_PWM_DUTY_MAX / 10)
 #define FAN_GPIO GPIO_NUM_8
 
 #define DHT22_GPIO GPIO_NUM_10
@@ -68,6 +69,8 @@ static void apply_fan_duty(fan_control_state_t *fan);
  */
 static void task_fan_control(void *pvParameters);
 
+static esp_err_t read_configuration(void);
+
 fan_control_state_t s_fan = {
     .humidity_min = 30 * 10,
     .humidity_max = 70 * 10,
@@ -75,7 +78,8 @@ fan_control_state_t s_fan = {
     .duty = 0,
     .control_mode = 0, // Default to automatic control
 };
-static SemaphoreHandle_t s_fan_control_mutex;
+static SemaphoreHandle_t s_fan_control_mutex = NULL;
+static nvs_handle_t s_nvs_handle = 0;
 
 // Sensor data storage
 static int16_t s_current_humidity = 0;
@@ -186,6 +190,24 @@ void task_fan_control(void *pvParameters)
     }
 }
 
+esp_err_t read_configuration(void)
+{
+    int16_t humidity_min;
+    int16_t humidity_max;
+    esp_err_t ret = nvs_open("fanctl", NVS_READWRITE, &s_nvs_handle);
+    if (ret == ESP_OK)
+    {
+        ret = nvs_get_i16(s_nvs_handle, "humidity_min", &humidity_min) ||
+            nvs_get_i16(s_nvs_handle, "humidity_max", &humidity_max);
+    }
+    if (ret == ESP_OK)
+    {
+        s_fan.humidity_min = humidity_min;
+        s_fan.humidity_max = humidity_max;
+    }
+    return ret;
+}
+
 esp_err_t fan_controller_init(void)
 {
     esp_err_t ret;
@@ -196,6 +218,17 @@ esp_err_t fan_controller_init(void)
     {
         ESP_LOGE(LOG_TAG, "Failed to create fan control mutex");
         return ESP_FAIL;
+    }
+
+    ret = read_configuration();
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(LOG_TAG, "Read configuration successfully");
+        ESP_LOGI(LOG_TAG, "humidity min/max %d/%d", s_fan.humidity_min, s_fan.humidity_max);
+    }
+    else
+    {
+        ESP_LOGE(LOG_TAG, "Configuration could not be read correctly");
     }
 
     ret = init_pwm_controller();
@@ -306,6 +339,18 @@ esp_err_t fan_controller_set_min_humidity(int16_t humidity)
         s_fan.humidity_min = humidity;
         s_fan.steps = s_fan.humidity_max - s_fan.humidity_min;
         xSemaphoreGive(s_fan_control_mutex);
+        if (s_nvs_handle != 0)
+        {
+            esp_err_t ret = (nvs_set_i16(s_nvs_handle, "humidity_min", humidity) || nvs_commit(s_nvs_handle));
+            if (ret == ESP_OK)
+            {
+                ESP_LOGI(LOG_TAG, "Saved humidity_min");
+            }
+            else
+            {
+                ESP_LOGW(LOG_TAG, "Can't save humidity_min");
+            }
+        }
         return ESP_OK;
     }
     else
@@ -325,6 +370,18 @@ esp_err_t fan_controller_set_max_humidity(int16_t humidity)
         s_fan.humidity_max = humidity;
         s_fan.steps = s_fan.humidity_max - s_fan.humidity_min;
         xSemaphoreGive(s_fan_control_mutex);
+        if (s_nvs_handle != 0)
+        {
+            esp_err_t ret = (nvs_set_i16(s_nvs_handle, "humidity_max", humidity) || nvs_commit(s_nvs_handle));
+            if (ret == ESP_OK)
+            {
+                ESP_LOGI(LOG_TAG, "Saved humidity_max");
+            }
+            else
+            {
+                ESP_LOGW(LOG_TAG, "Can't save humidity_max");
+            }
+        }
         return ESP_OK;
     }
     else
